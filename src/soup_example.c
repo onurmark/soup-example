@@ -4,7 +4,6 @@
 #include <glib.h>
 #include <libsoup/soup.h>
 
-static void client_connect_and_send_message(void);
 static SoupLogger *logger;
 
 static const char *state_names[] = {
@@ -23,12 +22,6 @@ static void connection_state_changed(GObject *object, GAsyncResult *result, gpoi
 			state_names[*state], state_names[new_state]);
 
 	*state = new_state;
-
-	if (*state == SOUP_CONNECTION_CONNECTING) {
-
-	} else if (*state == SOUP_CONNECTION_DISCONNECTED ||
-			*state == SOUP_CONNECTION_REMOTE_DISCONNECTED) {
-	}
 }
 
 static void connection_created(SoupSession *session, GObject *conn, gpointer user_data)
@@ -92,45 +85,50 @@ static void client_connect_complete(GObject *object, GAsyncResult *result, gpoin
 	}
 }
 
-static void client_connect(void)
+static SoupConnectionState state;
+
+static gboolean websocket_start(gpointer data)
 {
-//	GTlsDatabase *null_tlsdb;
-	SoupConnectionState state;
 	SoupSession *session;
 	SoupMessage *msg;
 	GError *error = NULL;
 
-//	null_tlsdb = g_tls_file_database_new ("/dev/null", &error);
+	g_print("state: %d\n", state);
 
-	session = soup_session_new();
-	g_object_set(G_OBJECT(session),
-//			SOUP_SESSION_TLS_DATABASE, null_tlsdb,
-			SOUP_SESSION_SSL_STRICT, FALSE,
-			NULL);
-	soup_session_add_feature(session, SOUP_SESSION_FEATURE(logger));
+	if (state == SOUP_CONNECTION_NEW ||
+			state == SOUP_CONNECTION_DISCONNECTED ||
+			state == SOUP_CONNECTION_REMOTE_DISCONNECTED) {
+		session = soup_session_new();
+		g_object_set(G_OBJECT(session),
+				SOUP_SESSION_SSL_STRICT, FALSE,
+				NULL);
+		soup_session_add_feature(session, SOUP_SESSION_FEATURE(logger));
 
-	g_signal_connect(session, "connection-created",
-			G_CALLBACK(connection_created),
-			&state);
+		g_signal_connect(session, "connection-created",
+				G_CALLBACK(connection_created),
+				&state);
 
-	msg = soup_message_new(SOUP_METHOD_GET, "wss://echo.websocket.org");
+		msg = soup_message_new(SOUP_METHOD_GET, "wss://echo.websocket.org");
 
-	soup_session_websocket_connect_async(session,
-			msg,
-			NULL,
-			(char **)NULL,
-			NULL,
-			client_connect_complete,
-			NULL);
+		soup_session_websocket_connect_async(session,
+				msg,
+				NULL,
+				(char **)NULL,
+				NULL,
+				client_connect_complete,
+				NULL);
+	}
+
+    return TRUE;
 }
 
 int main(void)
 {
 	GMainLoop *loop = NULL;
 	logger = soup_logger_new (SOUP_LOGGER_LOG_BODY, -1);
-	client_connect();
 
-	loop = g_main_loop_new (NULL, TRUE);
+	loop = g_main_loop_new (NULL, FALSE);
+	g_timeout_add_seconds(3, websocket_start, NULL);
 	g_main_loop_run (loop);
 	g_main_loop_unref (loop);
 
